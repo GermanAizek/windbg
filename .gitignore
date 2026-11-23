@@ -1,0 +1,6 @@
+ghidra/
+x64/
+Debug/
+Release/
+*.user
+*.suo
