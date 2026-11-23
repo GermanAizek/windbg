@@ -18,6 +18,14 @@ NTSTATUS WindbgAttachToFileSystem(PDEVICE_OBJECT TargetDeviceObject)
         return STATUS_INVALID_PARAMETER;
     }
 
+    // FIX: Validate device type to prevent filter hijacking of non-filesystem device stacks
+    if (TargetDeviceObject->DeviceType != FILE_DEVICE_DISK_FILE_SYSTEM &&
+        TargetDeviceObject->DeviceType != FILE_DEVICE_NETWORK_FILE_SYSTEM &&
+        TargetDeviceObject->DeviceType != FILE_DEVICE_CD_ROM_FILE_SYSTEM &&
+        TargetDeviceObject->DeviceType != FILE_DEVICE_TAPE_FILE_SYSTEM) {
+        return STATUS_ACCESS_DENIED;
+    }
+
     Status = IoCreateDevice(
         g_DriverObject,
         sizeof(WINDBG_FILTER_EXTENSION),
@@ -98,6 +106,7 @@ VOID WindbgCleanupAllFilters(PDRIVER_OBJECT DriverObject)
     while (CurrentDevice) {
         NextDevice = CurrentDevice->NextDevice;
         if (CurrentDevice->DeviceType != WINDBG_DEVICE_TYPE) {
+            // FIX: Detach and safely delete all filter devices on driver unload
             WindbgDetachFromFileSystem(CurrentDevice);
         }
         CurrentDevice = NextDevice;
