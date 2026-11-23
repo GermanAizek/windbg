@@ -17,17 +17,17 @@ Driver windbg.sys was designed to provide stealthy kernel and user-mode executio
 
 Fixed vulnerabilities in opensource driver windbg.sys:
 
-- [ ] (LOLDrivers: windbg.sys)[https://www.loldrivers.io/drivers/da7314dc-6cf1-4d74-a0d1-796fc08944f8/]
-  - Low-privilege users can inject code into system processes (explorer.exe), overwrite kernel memory, intercept file systems, and execute arbitrary code in kernel mode (BYOVD, MITRE ATT&CK T1068).
+- [x] [LOLDrivers: windbg.sys](https://www.loldrivers.io/drivers/da7314dc-6cf1-4d74-a0d1-796fc08944f8/)
+  - Low-privilege users can inject code into system processes (explorer.exe), overwrite kernel memory, intercept file systems, and execute arbitrary code in kernel mode (BYOVD, MITRE ATT&CK T1068). Fixed by enforcing administrative ACLs on device creation, neutralizing process injection, restricting MDL kernel memory writes, and validating filesystem filter attachments.
 
 Fixed no publish vulnerabilities and bugs which contributors to this project found:
 
-- [ ] Device deletion bypassed on symbolic link deletion failure ([view code](main.c))
-- [ ] Arbitrary user-mode process code injection and execution in command 0x00222000 ([view code](inject.c))
-- [ ] Arbitrary kernel code and read-only memory overwrite via MDL in command 0x00222004 ([view code](patch.c))
-- [ ] Unauthorized file system filter device attachment and leak on unload ([view code](fsfilter.c))
-- [ ] Unauthorized process blocking and IOCTL denial of service in command 0x00222008 ([view code](main.c))
-- [ ] Device creation with weak permissions ([view code](main.c))
+- [x] Device deletion bypassed on symbolic link deletion failure ([view code](main.c))
+- [x] Arbitrary user-mode process code injection and execution in command 0x00222000 ([view code](inject.c))
+- [x] Arbitrary kernel code and read-only memory overwrite via MDL in command 0x00222004 ([view code](patch.c))
+- [x] Unauthorized file system filter device attachment and leak on unload ([view code](fsfilter.c))
+- [x] Unauthorized process blocking and IOCTL denial of service in command 0x00222008 ([view code](main.c))
+- [x] Device creation with weak permissions ([view code](main.c))
 
 Authors:
 
