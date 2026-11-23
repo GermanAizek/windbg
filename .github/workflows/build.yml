@@ -1,0 +1,56 @@
+name: Build Windows Driver
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install WDK and Visual Studio Extension
+        shell: powershell
+        run: |
+          Write-Host "Downloading latest WDK..."
+          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?linkid=2196230" -OutFile wdksetup.exe
+          
+          Write-Host "Installing WDK (This takes a few minutes)..."
+          $wdkProcess = Start-Process -FilePath ".\wdksetup.exe" -ArgumentList "/q" -Wait -PassThru
+          Write-Host "WDK Exit Code: $($wdkProcess.ExitCode)"
+          
+          Write-Host "Locating WDK.vsix..."
+          $vsix = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\Vsix" -Filter "WDK.vsix" -Recurse | Select-Object -First 1
+          
+          Write-Host "Locating Visual Studio Installer..."
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -property installationPath
+          $vsixInstaller = Join-Path $vsPath "Common7\IDE\VSIXInstaller.exe"
+          
+          Write-Host "Forcefully injecting WDK Extension into MSBuild..."
+          $vsixProcess = Start-Process -FilePath $vsixInstaller -ArgumentList "/q", "/admin", "/force", $vsix.FullName -Wait -PassThru
+          Write-Host "VSIX Exit Code: $($vsixProcess.ExitCode)"
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build windbg Solution
+        run: msbuild windbg.sln /t:Rebuild /p:Configuration=Release /p:Platform=x64
+
+      - name: Create Test Certificate and Sign Driver
+        shell: powershell
+        run: |
+          New-SelfSignedCertificate -DnsName "windbg Test Cert" -CertStoreLocation "cert:\CurrentUser\My" -Type CodeSigningCert -Subject "windbg"
+          $cert = Get-ChildItem -Path "Cert:\CurrentUser\My" | Where-Object { $_.Subject -match "windbg" }
+          signtool sign /v /fd SHA256 /a /sha1 $($cert.Thumbprint) x64\Release\windbg.sys
+
+      - name: Upload Driver Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windbg-Release-x64
+          path: x64/Release/windbg.sys
