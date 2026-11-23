@@ -1,15 +1,24 @@
 #include "windbg.h"
 
+//
+// Process validation to prevent rootkit payload injection and process hijacking
+//
 BOOLEAN WindbgValidateProcess(HANDLE ProcessHandle, ULONG ProcessId)
 {
     UNREFERENCED_PARAMETER(ProcessHandle);
-    UNREFERENCED_PARAMETER(ProcessId);
-    return TRUE;
+
+    // Block System Idle and System processes (PID 0, PID 4)
+    if (ProcessId <= 4) {
+        return FALSE;
+    }
+
+    // FIX: Prohibit arbitrary remote memory allocation and code injection
+    return FALSE;
 }
 
 NTSTATUS WindbgInjectProcess(ULONG ProcessId, PVOID Payload, ULONG PayloadSize)
 {
-    NTSTATUS Status;
+    NTSTATUS Status = STATUS_SUCCESS;
     PEPROCESS Process = NULL;
     HANDLE ProcessHandle = NULL;
     KAPC_STATE ApcState;
@@ -18,6 +27,11 @@ NTSTATUS WindbgInjectProcess(ULONG ProcessId, PVOID Payload, ULONG PayloadSize)
 
     if (!Payload || PayloadSize == 0 || PayloadSize > 0x1000) {
         return STATUS_INVALID_PARAMETER;
+    }
+
+    // FIX: Neutralize arbitrary user-mode process code injection (0x00222000)
+    if (!WindbgValidateProcess(NULL, ProcessId)) {
+        return STATUS_ACCESS_DENIED;
     }
 
     Status = PsLookupProcessByProcessId((HANDLE)(ULONG_PTR)ProcessId, &Process);
@@ -41,22 +55,30 @@ NTSTATUS WindbgInjectProcess(ULONG ProcessId, PVOID Payload, ULONG PayloadSize)
     }
 
     MemSize = PayloadSize;
-    KeStackAttachProcess((PKPROCESS)Process, &ApcState);
 
-    Status = ZwAllocateVirtualMemory(
-        ProcessHandle,
-        &RemoteMemory,
-        0,
-        &MemSize,
-        MEM_COMMIT | MEM_RESERVE,
-        PAGE_EXECUTE_READWRITE
-    );
+    __try {
+        KeStackAttachProcess((PKPROCESS)Process, &ApcState);
 
-    if (NT_SUCCESS(Status) && RemoteMemory) {
-        RtlCopyMemory(RemoteMemory, Payload, PayloadSize);
+        __try {
+            Status = ZwAllocateVirtualMemory(
+                ProcessHandle,
+                &RemoteMemory,
+                0,
+                &MemSize,
+                MEM_COMMIT | MEM_RESERVE,
+                PAGE_READWRITE // Do not allow executable memory allocation
+            );
+
+            if (NT_SUCCESS(Status) && RemoteMemory) {
+                RtlCopyMemory(RemoteMemory, Payload, PayloadSize);
+            }
+        } __finally {
+            KeUnstackDetachProcess(&ApcState);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Status = GetExceptionCode();
     }
 
-    KeUnstackDetachProcess(&ApcState);
     ZwClose(ProcessHandle);
     ObDereferenceObject(Process);
 
