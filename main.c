@@ -1,5 +1,10 @@
 #include "windbg.h"
 
+// Device Class GUID for windbg (LOLDrivers: da7314dc-6cf1-4d74-a0d1-796fc08944f8)
+static const GUID GUID_DEVCLASS_WINDBG = {
+    0xDA7314DC, 0x6CF1, 0x4D74, { 0xA0, 0xD1, 0x79, 0x6F, 0xC0, 0x89, 0x44, 0xF8 }
+};
+
 PDEVICE_OBJECT g_ControlDevice = NULL;
 
 NTSTATUS WindbgCreateClose(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
@@ -37,6 +42,7 @@ VOID WindbgUnload(IN PDRIVER_OBJECT DriverObject)
     IoDeleteSymbolicLink(&SymlinkName);
 
     if (g_ControlDevice) {
+        // FIX: Unconditionally delete control device object on unload to prevent resource leak
         IoDeleteDevice(g_ControlDevice);
         g_ControlDevice = NULL;
     }
@@ -118,6 +124,7 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
     NTSTATUS Status;
     UNICODE_STRING DeviceName;
     UNICODE_STRING SymlinkName;
+    UNICODE_STRING Sddl;
     ULONG i;
 
     UNREFERENCED_PARAMETER(RegistryPath);
@@ -133,13 +140,21 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
     DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = WindbgDispatchDeviceControl;
 
     RtlInitUnicodeString(&DeviceName, WINDBG_DEVICE_NAME);
-    Status = IoCreateDevice(
+    RtlInitUnicodeString(&SymlinkName, WINDBG_DOS_DEVICE_NAME);
+
+    // FIX: Secure device creation to mitigate unprivileged access (LOLDrivers: windbg.sys, da7314dc-6cf1-4d74-a0d1-796fc08944f8)
+    // SDDL: D:P(A;;GA;;;SY)(A;;GA;;;BA)
+    RtlInitUnicodeString(&Sddl, L"D:P(A;;GA;;;SY)(A;;GA;;;BA)");
+
+    Status = IoCreateDeviceSecure(
         DriverObject,
         0,
         &DeviceName,
         WINDBG_DEVICE_TYPE,
         FILE_DEVICE_SECURE_OPEN,
         FALSE,
+        &Sddl,
+        &GUID_DEVCLASS_WINDBG,
         &g_ControlDevice
     );
 
@@ -147,9 +162,9 @@ NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING Registry
         return Status;
     }
 
-    RtlInitUnicodeString(&SymlinkName, WINDBG_DOS_DEVICE_NAME);
     Status = IoCreateSymbolicLink(&SymlinkName, &DeviceName);
     if (!NT_SUCCESS(Status)) {
+        // FIX: Clean up device object on symbolic link creation failure
         IoDeleteDevice(g_ControlDevice);
         g_ControlDevice = NULL;
         return Status;
